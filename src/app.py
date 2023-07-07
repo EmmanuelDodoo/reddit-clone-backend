@@ -1,5 +1,5 @@
-from models import db, User, Token, Asset
-from flask import Flask, request, redirect
+from models import db, User, Token, Asset, Post
+from flask import Flask, request, redirect, Request
 import json
 import re
 from datetime import datetime
@@ -50,7 +50,7 @@ def failure_response(msg, code=404):
     return json.dumps({"error": msg}), code
 
 
-def extract_token(request):
+def extract_token(request: Request):
     """ Returns the token associated with `request`"""
     header = request.headers.get("Authorization")
 
@@ -75,7 +75,26 @@ def verify_email(email: str):
     return True if re_match else False
 
 
+def verify_token(userid: int, request: Request):
+    """ Checks the existence of token in `request` and
+        verifies token for `userid`.
+
+        Returns a 2 tuple of form:
+            tuple[0]: boolean - whether the token verification was successful
+            tuple[1]: the message associated with the verification.  
+    """
+    success, message = extract_token(request)
+    if not success:
+        return success, message
+
+    token: Token = Token.query.filter_by(value=message).first()
+    if not token or not token.verify(userid):
+        return False, failure_response("Invalid session token", 401)
+
+    return True, success_response(token.serialize())
+
 # -----------------------------------------------------------
+
 
 @app.route("/api/")
 def home():
@@ -109,8 +128,14 @@ def signup():
         return failure_response("Invalid email", 403)
 
     # Cross check for any similar user
+    # by email
     existing_user: User = User.query.filter_by(
         email=req_body.get("email")).first()
+    if existing_user:
+        return failure_response("User already exists", 400)
+    # by username
+    existing_user: User = User.query.filter_by(
+        username=req_body.get("usename")).first()
     if existing_user:
         return failure_response("User already exists", 400)
 
@@ -289,6 +314,217 @@ def update_user(id: int):
             return failure_response("Bad request body", 400)
 
     return success_response(user.serialize(), 201)
+
+
+@app.route("/api/users/<int:uid>/posts/")
+def get_user_posts(uid: int):
+    """Returns all the posts of uid"""
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    return success_response(user.get_all_posts())
+
+
+@app.route("/api/users/<int:uid>/posts/<int:pid>/upvote/", methods=["PATCH"])
+def upvote_post(uid: int, pid: int):
+    """ 
+        Upvote a post. User karma is increased by 2
+        No change is made if the user has already upvoted this post.
+
+        Requires Authentication
+
+    """
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not Found", 404)
+
+    post: Post = Post.query.filter_by(id=pid).first()
+    if not post:
+        return failure_response("Post not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    # Check if post is already upvoted
+    if not pid in user.get_upvoted_posts():
+        user.add_post_upvote(pid)
+        user.increase_karma(2)
+        post.upvote()
+
+    return success_response(post.serialize(), 201)
+
+
+@app.route("/api/users/<int:uid>/posts/<int:pid>/upvote/reset/", methods=["PATCH"])
+def reset_upvote(uid: int, pid: int):
+    """ Resets a user's upvote on a post. 
+        No change is made if the post was not previously upvoted on.
+
+        Requires Authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    post: Post = Post.query.filter_by(id=pid).first()
+    if not post:
+        return failure_response("Post not found")
+
+    success, message = verify_token(uid, request)
+
+    if not success:
+        return message
+
+    if pid in user.get_upvoted_posts():
+        user.remove_post_upvote(pid)
+        post.downvote()
+
+    return success_response(post.serialize(), 201)
+
+
+@app.route("/api/users/<int:uid>/posts/<int:pid>/downvote/", methods=["PATCH"])
+def downvote_post(uid: int, pid: int):
+    """ 
+        Downvote a post.
+        No change is made if the user has already upvoted this post.
+
+        Requires Authentication
+
+    """
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not Found", 404)
+
+    post: Post = Post.query.filter_by(id=pid).first()
+    if not post:
+        return failure_response("Post not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    # Check if post is already downvoted
+    if not post.id in user.get_downvoted_posts():
+        user.add_post_downvote(post.id)
+        post.downvote()
+
+    return success_response(post.serialize(), 201)
+
+
+@app.route("/api/users/<int:uid>/posts/<int:pid>/downvote/reset/", methods=["PATCH"])
+def reset_downvote(uid: int, pid: int):
+    """ Reset's a user's downvote on a post. 
+        No change is made if the post was not previously downvoted on.
+
+        Requires Authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    post: Post = Post.query.filter_by(id=pid).first()
+    if not post:
+        return failure_response("Post not found")
+
+    success, message = verify_token(uid, request)
+
+    if not success:
+        return message
+
+    if pid in user.get_downvoted_posts():
+        user.remove_post_downvote(pid)
+        post.upvote()
+
+    return success_response(post.serialize(), 201)
+
+
+@app.route("/api/posts/", methods=["POST"])
+def create_post():
+    """ Create a post.
+        User karma is increased by 47 if successful
+
+        Requires an Authorization token
+    """
+
+    if not request.data:
+        return failure_response("Bad Request", 400)
+
+    body: dict = json.loads(request.data)
+
+    # Validate the request body
+    if not body.get("userid") or not isinstance(body.get("userid"), int):
+        return failure_response("Bad Request", 400)
+
+    if not body.get("title") or not isinstance(body.get("title"), str):
+        return failure_response("Bad Request", 400)
+
+    if body.get("imagePresent") == None or not isinstance(body.get("imagePresent"), bool):
+        return failure_response("Bad Request", 400)
+
+    if body.get("contents") and not isinstance(body.get("contents"), str):
+        return failure_response("Bad Request", 400)
+
+    if body.get("imagePresent"):
+        if not body.get("imageURL") or not isinstance(body.get("imageURL"), str):
+            return failure_response("Bad Request", 400)
+
+    # Validate user existence
+    user: User = User.query.filter_by(id=body.get("userid")).first()
+
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    post: Post = Post(
+        userid=body.get("userid", 0),
+        title=body.get("title", ""),
+        contents=body.get("contents", ""),
+        image_present=body.get("imagePresent", ""),
+        image_url=body.get("imageURL", "")
+    )
+
+    # Add and commit changes
+    db.session.add(post)
+    db.session.commit()
+
+    # upvote the post. Post doesn't have an id until it's added to the database
+    user.add_post_upvote(post.id)
+    user.increase_karma(47)
+
+    return success_response(post.serialize(), 201)
+
+
+@app.route("/api/posts/<int:pid>/")
+def get_post(pid: int):
+    """ Return the post with matching id"""
+
+    post: Post = Post.query.filter_by(id=pid).first()
+
+    if not post:
+        return failure_response("Post not found")
+
+    return success_response(post.serialize())
+
+
+@app.route("/api/testing/")
+def testing():
+    """Testing stuff"""
+
+    user: User = User.query.filter_by(id=1).first()
+
+    user.remove_post_upvote(2)
+
+    return success_response(user.full_serialize())
 
 
 if __name__ == "__main__":

@@ -36,6 +36,10 @@ class User(db.Model):
     karma: int = db.Column(db.Integer, default=0)
     joined: int = db.Column(db.Integer, nullable=False)
     _passoword: str = db.Column(db.String, nullable=False)
+    posts = db.relationship("Post", cascade="delete")
+    # a white space separated string of the post ids
+    _posts_upvoted: str = db.Column(db.String, default="")
+    _posts_downvoted: str = db.Column(db.String, default="")
 
     @classmethod
     def _process_password(cls, password: str):
@@ -75,14 +79,17 @@ class User(db.Model):
         }
 
     def full_serialize(self):
-        """ Return a simplified dictionary view of this User"""
+        """ Return a full dictionary view of this User"""
         return {
             "id": self.id,
             "username": self.username,
             "imageURL": self.image_url,
             "karma": self.karma,
             "joined": self.joined,
-            "email": self.email
+            "email": self.email,
+            "upvoted_posts": self.get_upvoted_posts(),
+            "downvoted_posts": self.get_downvoted_posts(),
+            "posts": [p.serialize() for p in Post.query.filter_by(userid=self.id)]
         }
 
     def hash_and_verify(self, password: str):
@@ -136,6 +143,71 @@ class User(db.Model):
 
         self.karma += amount
         db.session.commit()
+
+    def get_upvoted_posts(self):
+        """ Returns a list of post ids of all upvoted posts"""
+
+        split = self._posts_upvoted.split()
+
+        return [int(i) for i in split]
+
+    def get_downvoted_posts(self):
+        """ Returns a list of post ids of all downvoted posts"""
+
+        split = self._posts_downvoted.split()
+
+        return [int(i) for i in split]
+
+    def add_post_upvote(self, post_id: int):
+        """ Add the post with id, `post_id` to this user's upvotes,
+            Committing the changes to the database.
+
+
+            Requires: the post id is valid.
+        """
+
+        self._posts_upvoted += f" {post_id}"
+        db.session.commit()
+
+    def remove_post_upvote(self, post_id: int):
+        """
+            Remove the post with id, `post_id` from this user's upvotes,
+            committing the changes to the database.
+
+            Requires: the post id is valid.
+        """
+
+        self._posts_upvoted = self._posts_upvoted.replace(str(post_id), "")
+        db.session.commit()
+
+    def add_post_downvote(self, post_id: int):
+        """ Add the post with id, `post_id` to this user's downvotes,
+            Committing the changes to the database.
+
+
+            Requires: the post id is valid.
+        """
+
+        self._posts_downvoted += f" {post_id}"
+        db.session.commit()
+
+    def remove_post_downvote(self, post_id: int):
+        """
+            Remove the post with id, `post_id` from this user's downvotes,
+            committing the changes to the database.
+
+            Requires: the post id is valid.
+        """
+
+        self._posts_downvoted = self._posts_downvoted.replace(str(post_id), "")
+        db.session.commit()
+
+    def get_all_posts(self):
+        """ Returns all the posts of this user"""
+
+        return {
+            "posts": [p.serialize() for p in Post.query.filter_by(userid=self.id)]
+        }
 
 
 class Token(db.Model):
@@ -313,3 +385,60 @@ class Asset(db.Model):
         return {
             "url": f'{self.base_url}/{self.salt}.{self.extension}'
         }
+
+
+class Post(db.Model):
+    """ Table for the posts"""
+
+    __tablename__ = "posts"
+
+    id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    userid: int = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False)
+    title: str = db.Column(db.String, nullable=False)
+    contents: str = db.Column(db.Text, nullable=True)
+    image_present: bool = db.Column(db.Boolean, nullable=True)
+    image_url: str = db.Column(db.String, nullable=True)
+    votes: int = db.Column(db.Integer, default=1)
+    created_at: int = db.Column(db.Integer, nullable=False)
+
+    def __init__(self, userid: int, title: str, contents: str = "", image_present: bool = False, image_url: str = ""):
+        """
+            Create a new post. The created_at and votes fields are automatically set. Votes is set to 1
+        """
+        self.userid = userid
+        self.title = title
+        self.contents = contents
+        self.image_present = image_present
+        self.image_url = image_url
+        self.created_at = int(datetime.now().timestamp())
+
+    def serialize(self):
+        """ Returns a simplified python dictionary view of this Post"""
+        return {
+            "id": self.id,
+            "userid": self.userid,
+            "title": self.title,
+            "contents": self.contents,
+            "imagePresent": self.image_present,
+            "imageURL": self.image_url,
+            "created_at": self.created_at,
+            "votes": self.votes
+        }
+
+    def upvote(self):
+        """ Upvote this post by 1 vote,
+            Committing the changes to the database
+        """
+
+        self.votes += 1
+        db.session.commit()
+
+    def downvote(self):
+        """
+            Downvote this post by 1 vote,
+            committing the changes to the database
+        """
+
+        self.votes -= 1
+        db.session.commit()
