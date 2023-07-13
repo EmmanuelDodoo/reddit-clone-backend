@@ -14,209 +14,73 @@ import boto3
 from mimetypes import guess_extension, guess_type
 from datetime import datetime
 
+# ==========================Constants===================================
 
-db = SQLAlchemy()
+USER_TABLE_NAME = "users"
+POST_TABLE_NAME = "posts"
+ASSET_TABLE_NAME = "images"
+TOKEN_TABLE_NAME = "tokens"
+COMMENT_TABLE_NAME = "comments"
+SUBREDDIT_TABLE_NAME = "subreddits"
+
+# ========================================================================
 
 
+# ============================ Asset stuff========================================
 EXTENSIONS = ["jpg", "png", "gif", "jpeg"]
 S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "")
 S3_BASE_URL: str = f"https://{S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com"
 BASE_DIR: str = os.getcwd()
 DEFAULT_PICTURE_URL: str = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/defaultpicture.jpeg"
+# ==========================================================================================
 
 
-class User(db.Model):
-    """ Table representing users"""
+db = SQLAlchemy()
 
-    __tablename__ = "users"
-    id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    username: str = db.Column(db.String, nullable=False)
-    image_url: str = db.Column(db.String, nullable=False)
-    email: str = db.Column(db.String, nullable=False)
-    karma: int = db.Column(db.Integer, default=0)
-    joined: int = db.Column(db.Integer, nullable=False)
-    _passoword: str = db.Column(db.String, nullable=False)
-    posts = db.relationship("Post", cascade="delete")
-    # a white space separated string of the post ids
-    _posts_upvoted: str = db.Column(db.String, default="")
-    _posts_downvoted: str = db.Column(db.String, default="")
+users_comments_upvotes = db.Table(
+    "users_comments_upvotes",
+    db.Column("user_id", db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id")),
+    db.Column("comment_id", db.Integer, db.ForeignKey(
+        f"{COMMENT_TABLE_NAME}.id"))
+)
 
-    @classmethod
-    def _process_password(cls, password: str):
-        """
-            Returns a salted and hashed version of `password`
-        """
-        presalt: str = os.getenv("PRESALT", "")
-        postsalt: str = os.getenv("POSTSALT", "")
+users_comments_downvotes = db.Table(
+    "users_comments_downvotes",
+    db.Column("user_id", db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id")),
+    db.Column("comment_id", db.Integer, db.ForeignKey(
+        f"{COMMENT_TABLE_NAME}.id"))
+)
 
-        salted = postsalt + password + presalt
-        hash = hashlib.sha256()
-        hash.update(salted.encode("utf-8"))
+users_posts_upvotes = db.Table(
+    "users_posts_upvotes",
+    db.Column("user_id", db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id"
+    )),
+    db.Column("post_id", db.Integer, db.ForeignKey(
+        f"{POST_TABLE_NAME}.id"
+    ))
+)
 
-        return hash.hexdigest()
-
-    def __init__(self, username: str, email: str, password: str, imageURL: str = ""):
-        """Create a new User instance. The id, karma and joindate
-          are generated automatically. The password provided is salted and hashed
-          before being stored.
-
-          If no imageURL is provided, a default is provided"""
-
-        self.username = username
-        self.email = email
-        self.image_url = imageURL if imageURL else DEFAULT_PICTURE_URL
-        self.joined = int(datetime.now().timestamp())
-        self._passoword = self._process_password(password)
-
-    def serialize(self):
-        """ Return a simplified dictionary view of this User"""
-        return {
-            "id": self.id,
-            "username": self.username,
-            "imageURL": self.image_url,
-            "karma": self.karma,
-            "joined": self.joined
-        }
-
-    def full_serialize(self):
-        """ Return a full dictionary view of this User"""
-        return {
-            "id": self.id,
-            "username": self.username,
-            "imageURL": self.image_url,
-            "karma": self.karma,
-            "joined": self.joined,
-            "email": self.email,
-            "upvoted_posts": self.get_upvoted_posts(),
-            "downvoted_posts": self.get_downvoted_posts(),
-            "posts": [p.serialize() for p in Post.query.filter_by(userid=self.id)]
-        }
-
-    def hash_and_verify(self, password: str):
-        """ Returns True if `password` matches the stored password of this user"""
-
-        # password
-        password = self._process_password(password)
-
-        return self._passoword == password
-
-    def verify(self, password: str):
-        """ Checks if this `password` is the password of this user"""
-        return self._passoword == password
-
-    def update_username(self, new_username: str):
-        """ Updates the username of this instance to `new_username` and commits to 
-        the database."""
-
-        self.username = new_username
-        db.session.commit()
-
-    def update_image_url(self, new_url: str):
-        """
-            Updates the image url of this user and commits the changes to the 
-            database.
-        """
-
-        self.image_url = new_url
-        db.session.commit()
-
-    def update_password(self, new_password: str):
-        """
-            Updates the password of this user, commiting the changes to the database
-
-        """
-
-        self._passoword = self._process_password(new_password)
-        db.session.commit()
-
-    def update_email(self, new_email: str):
-        """ Updates the email of this user, committing the changes to the
-            database
-        """
-        self.email = new_email
-        db.session.commit()
-
-    def increase_karma(self, amount: int):
-        """ Increases the karma of this user by `amount`, committing
-            the changes
-        """
-
-        self.karma += amount
-        db.session.commit()
-
-    def get_upvoted_posts(self):
-        """ Returns a list of post ids of all upvoted posts"""
-
-        split = self._posts_upvoted.split()
-
-        return [int(i) for i in split]
-
-    def get_downvoted_posts(self):
-        """ Returns a list of post ids of all downvoted posts"""
-
-        split = self._posts_downvoted.split()
-
-        return [int(i) for i in split]
-
-    def add_post_upvote(self, post_id: int):
-        """ Add the post with id, `post_id` to this user's upvotes,
-            Committing the changes to the database.
-
-
-            Requires: the post id is valid.
-        """
-
-        self._posts_upvoted += f" {post_id}"
-        db.session.commit()
-
-    def remove_post_upvote(self, post_id: int):
-        """
-            Remove the post with id, `post_id` from this user's upvotes,
-            committing the changes to the database.
-
-            Requires: the post id is valid.
-        """
-
-        self._posts_upvoted = self._posts_upvoted.replace(str(post_id), "")
-        db.session.commit()
-
-    def add_post_downvote(self, post_id: int):
-        """ Add the post with id, `post_id` to this user's downvotes,
-            Committing the changes to the database.
-
-
-            Requires: the post id is valid.
-        """
-
-        self._posts_downvoted += f" {post_id}"
-        db.session.commit()
-
-    def remove_post_downvote(self, post_id: int):
-        """
-            Remove the post with id, `post_id` from this user's downvotes,
-            committing the changes to the database.
-
-            Requires: the post id is valid.
-        """
-
-        self._posts_downvoted = self._posts_downvoted.replace(str(post_id), "")
-        db.session.commit()
-
-    def get_all_posts(self):
-        """ Returns all the posts of this user"""
-
-        return {
-            "posts": [p.serialize() for p in Post.query.filter_by(userid=self.id)]
-        }
+users_posts_downvotes = db.Table(
+    "users_posts_downvotes",
+    db.Column("user_id", db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id"
+    )),
+    db.Column("post_id", db.Integer, db.ForeignKey(
+        f"{POST_TABLE_NAME}.id"
+    ))
+)
 
 
 class Token(db.Model):
     """ Table to handle authorization tokens"""
 
-    __tablename__ = "tokens"
+    __tablename__ = TOKEN_TABLE_NAME
     id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
     userid: int = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False)
+        db.Integer, db.ForeignKey(f"{TOKEN_TABLE_NAME}.id"), nullable=False)
     value: str = db.Column(db.String, nullable=False)
     created_at: int = db.Column(db.Integer, nullable=False)
     expires_at: int = db.Column(db.Integer, nullable=False)
@@ -268,7 +132,7 @@ class Token(db.Model):
 class Asset(db.Model):
     """ Table to handle image uploads"""
 
-    __tablename__ = "images"
+    __tablename__ = ASSET_TABLE_NAME
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     base_url = db.Column(db.String, nullable=False)
     salt = db.Column(db.String, nullable=False)
@@ -390,23 +254,31 @@ class Asset(db.Model):
 class Post(db.Model):
     """ Table for the posts"""
 
-    __tablename__ = "posts"
+    __tablename__ = POST_TABLE_NAME
 
     id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    userid: int = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id: int = db.Column(
+        db.Integer, db.ForeignKey(f"{USER_TABLE_NAME}.id"), nullable=False)
     title: str = db.Column(db.String, nullable=False)
     contents: str = db.Column(db.Text, nullable=True)
     image_present: bool = db.Column(db.Boolean, nullable=True)
     image_url: str = db.Column(db.String, nullable=True)
-    votes: int = db.Column(db.Integer, default=1)
+    votes: int = db.Column(db.Integer, default=0)
     created_at: int = db.Column(db.Integer, nullable=False)
+    comments: list["Comment"] = db.relationship("Comment", cascade="delete")
+
+    upvoting_users: list["User"] = db.relationship(
+        "User", secondary=users_posts_upvotes, back_populates="upvoted_posts"
+    )
+    downvoting_users: list["User"] = db.relationship(
+        "User", secondary=users_posts_downvotes, back_populates="downvoted_posts"
+    )
 
     def __init__(self, userid: int, title: str, contents: str = "", image_present: bool = False, image_url: str = ""):
         """
             Create a new post. The created_at and votes fields are automatically set. Votes is set to 1
         """
-        self.userid = userid
+        self.user_id = userid
         self.title = title
         self.contents = contents
         self.image_present = image_present
@@ -417,22 +289,20 @@ class Post(db.Model):
         """ Returns a simplified python dictionary view of this Post"""
         return {
             "id": self.id,
-            "userid": self.userid,
+            "userid": self.user_id,
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
             "imageURL": self.image_url,
             "created_at": self.created_at,
-            "votes": self.votes
+            "votes": self.votes,
         }
 
     def upvote(self):
         """ Upvote this post by 1 vote,
-            Committing the changes to the database
         """
 
         self.votes += 1
-        db.session.commit()
 
     def downvote(self):
         """
@@ -441,4 +311,347 @@ class Post(db.Model):
         """
 
         self.votes -= 1
+
+    def get_all_comments(self):
+        """ Returns a list of all comments under this post. 
+
+            Replies are returned under their parent comments.
+        """
+
+        return [c.serialize() for c in self.comments if c.ancestor_id < 1]
+
+
+class Comment(db.Model):
+    """ Table for comments"""
+
+    __tablename__ = COMMENT_TABLE_NAME
+    id: int = db.Column(db.Integer, autoincrement=True, primary_key=True)
+    contents: str = db.Column(db.Text)
+    user_id: int = db.Column(db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id"), nullable=False)
+    post_id: int = db.Column(db.Integer, db.ForeignKey(
+        f"{POST_TABLE_NAME}.id"), nullable=False)
+    created_at: int = db.Column(db.Integer, default=0)
+    ancestor_id: int = db.Column(db.Integer, db.ForeignKey(
+        f"{COMMENT_TABLE_NAME}.id"), default=-1)
+    replies: list["Comment"] = db.relationship(
+        "Comment", cascade="delete")
+
+    votes: int = db.Column(db.Integer, default=0)
+    upvoting_users: list["User"] = db.relationship(
+        "User", secondary=users_comments_upvotes, back_populates="upvoted_comments")
+    downvoting_users: list["User"] = db.relationship(
+        "User", secondary=users_comments_downvotes, back_populates="downvoted_comments")
+
+    def __init__(self, user_id: int, post_id: int, ancestor_id: int | None, contents: str):
+        """ Create a new Comment"""
+
+        self.user_id = user_id
+        self.post_id = post_id
+        self.contents = contents
+
+        self.created_at = int(datetime.now().timestamp())
+
+        if ancestor_id:
+            self.ancestor_id = ancestor_id
+
+    def serialize(self):
+        """ Returns a simple python dictionary view of this comment"""
+
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "post_id": self.post_id,
+            "contents": self.contents,
+            "votes": self.votes,
+            "created_at": self.created_at,
+            "ancestor_id": self.ancestor_id,
+            "replies": [r.serialize() for r in self.replies]
+
+        }
+
+    def upvote(self):
+        """ Upvote this post by 1 vote
+        """
+
+        self.votes += 1
+
+    def downvote(self):
+        """
+            Downvote this post by 1 vote
+        """
+
+        self.votes -= 1
+
+
+class User(db.Model):
+    """ Table representing users"""
+
+    __tablename__ = USER_TABLE_NAME
+    id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username: str = db.Column(db.String, nullable=False)
+    image_url: str = db.Column(db.String, nullable=False)
+    email: str = db.Column(db.String, nullable=False)
+    karma: int = db.Column(db.Integer, default=0)
+    joined: int = db.Column(db.Integer, nullable=False)
+    _passoword: str = db.Column(db.String, nullable=False)
+    posts: list["Post"] = db.relationship("Post", cascade="delete")
+
+    # Posts
+    upvoted_posts: list["Post"] = db.relationship(
+        "Post", secondary=users_posts_upvotes, back_populates="upvoting_users"
+    )
+    downvoted_posts: list["Post"] = db.relationship(
+        "Post", secondary=users_posts_downvotes, back_populates="downvoting_users"
+    )
+
+    # Comments
+    comments: list["Comment"] = db.relationship("Comment", cascade="delete")
+    upvoted_comments: list["Comment"] = db.relationship(
+        "Comment", secondary=users_comments_upvotes, back_populates="upvoting_users")
+    downvoted_comments: list["Comment"] = db.relationship(
+        "Comment", secondary=users_comments_downvotes, back_populates="downvoting_users")
+
+    @classmethod
+    def _process_password(cls, password: str):
+        """
+            Returns a salted and hashed version of `password`
+        """
+        presalt: str = os.getenv("PRESALT", "")
+        postsalt: str = os.getenv("POSTSALT", "")
+
+        salted = postsalt + password + presalt
+        hash = hashlib.sha256()
+        hash.update(salted.encode("utf-8"))
+
+        return hash.hexdigest()
+
+    def __init__(self, username: str, email: str, password: str, imageURL: str = ""):
+        """Create a new User instance. The id, karma and joindate
+          are generated automatically. The password provided is salted and hashed
+          before being stored.
+
+          If no imageURL is provided, a default is provided"""
+
+        self.username = username
+        self.email = email
+        self.image_url = imageURL if imageURL else DEFAULT_PICTURE_URL
+        self.joined = int(datetime.now().timestamp())
+        self._passoword = self._process_password(password)
+
+    def serialize(self):
+        """ Return a simplified dictionary view of this User"""
+        return {
+            "id": self.id,
+            "username": self.username,
+            "imageURL": self.image_url,
+            "karma": self.karma,
+            "joined": self.joined
+        }
+
+    def full_serialize(self):
+        """ Return a full dictionary view of this User"""
+        return {
+            "id": self.id,
+            "username": self.username,
+            "imageURL": self.image_url,
+            "karma": self.karma,
+            "joined": self.joined,
+            "email": self.email,
+            "posts": self.get_all_posts(),
+            "upvoted_posts": self.get_upvoted_posts(),
+            "downvoted_posts": self.get_downvoted_posts(),
+            "comments": self.get_all_comments(),
+            "upvoted_comments": self.get_upvoted_comments(),
+            "downvoted_comments": self.get_downvoted_comments()
+        }
+
+    def hash_and_verify(self, password: str):
+        """ Returns True if `password` matches the stored password of this user"""
+
+        # password
+        password = self._process_password(password)
+
+        return self._passoword == password
+
+    def verify(self, password: str):
+        """ Checks if this `password` is the password of this user"""
+        return self._passoword == password
+
+    def update_username(self, new_username: str):
+        """ Updates the username of this instance to `new_username` and commits to 
+        the database."""
+
+        self.username = new_username
         db.session.commit()
+
+    def update_image_url(self, new_url: str):
+        """
+            Updates the image url of this user and commits the changes to the 
+            database.
+        """
+
+        self.image_url = new_url
+        db.session.commit()
+
+    def update_password(self, new_password: str):
+        """
+            Updates the password of this user, commiting the changes to the database
+
+        """
+
+        self._passoword = self._process_password(new_password)
+        db.session.commit()
+
+    def update_email(self, new_email: str):
+        """ Updates the email of this user, committing the changes to the
+            database
+        """
+        self.email = new_email
+        db.session.commit()
+
+    def increase_karma(self, amount: int):
+        """ Increases the karma of this user by `amount`, committing
+            the changes
+        """
+
+        self.karma += amount
+        db.session.commit()
+
+    # Posts
+    def get_upvoted_posts(self):
+        """ Returns a list of all upvoted posts"""
+
+        return [p.serialize() for p in self.upvoted_posts]
+
+    def get_downvoted_posts(self):
+        """ Returns a list of post ids of all downvoted posts"""
+
+        return [p.serialize() for p in self.downvoted_posts]
+
+    def upvote_post(self, post: Post):
+        """ Upvotes a post. Posts can only be upvoted once
+
+            If post was previously downvoted, the downvote is removed
+            and an upvote is added.
+
+            The post's votes is updated accordingly
+        """
+
+        if post in self.upvoted_posts:
+            return
+
+        if post in self.downvoted_posts:
+            self.downvoted_posts.remove(post)
+            post.upvote()
+
+        self.upvoted_posts.append(post)
+        post.upvote()
+
+    def downvote_post(self, post: Post):
+        """ Downvotes a post. Posts can only be downvoted once.
+
+            If post was previously upvoted, the upvote is removed
+            and an downvote is added.
+
+
+            The post's votes is updated accordingly
+        """
+
+        if post in self.downvoted_posts:
+            return
+
+        if post in self.upvoted_posts:
+            self.upvoted_posts.remove(post)
+            post.downvote()
+
+        self.downvoted_posts.append(post)
+        post.downvote()
+
+    def reset_post_vote(self, post: Post):
+        """
+            Removes post from this user's upvotes and downvotes,
+            updating the post's vote while doing so
+        """
+
+        if post in self.upvoted_posts:
+            self.upvoted_posts.remove(post)
+            post.downvote()
+
+        if post in self.downvoted_posts:
+            self.downvoted_posts.remove(post)
+            post.upvote()
+
+    def get_all_posts(self):
+        """ Returns a list of the posts of this user"""
+
+        return [p.serialize() for p in self.posts]
+
+    # Comments
+    def upvote_comment(self, comment: Comment):
+        """ Upvotes a comment. Comments can only be upvoted once
+
+            If comment was previously downvoted, the downvote is removed
+            and an upvote is added
+
+            The comment's votes is updated accordingly
+        """
+
+        if comment in self.upvoted_comments:
+            return
+
+        if comment in self.downvoted_comments:
+            self.downvoted_comments.remove(comment)
+            comment.upvote()
+
+        self.upvoted_comments.append(comment)
+        comment.upvote()
+
+    def downvote_comment(self, comment: Comment):
+        """ Downvotes a comment. Comments can only be downvoted once
+
+            If comment was previously upvoted, the upvote is removed
+            and an downvote is added.
+
+            The comment's votes is updated accordingly
+        """
+
+        if comment in self.downvoted_comments:
+            return
+
+        if comment in self.upvoted_comments:
+            self.upvoted_comments.remove(comment)
+            comment.downvote()
+
+        self.downvoted_comments.append(comment)
+        comment.downvote()
+
+    def reset_comment_vote(self, comment: Comment):
+        """
+            Removes comment from this user's upvotes and downvotes,
+            updating the comment's vote while doing so
+        """
+
+        if comment in self.upvoted_comments:
+            self.upvoted_comments.remove(comment)
+            comment.downvote()
+
+        if comment in self.downvoted_comments:
+            self.downvoted_comments.remove(comment)
+            comment.upvote()
+
+    def get_all_comments(self):
+        """
+            Returns a list of all comments left by this user
+        """
+
+        return [c.serialize() for c in self.comments]
+
+    def get_upvoted_comments(self):
+        """Returns a list of all comments upvoted by this user"""
+
+        return [c.serialize() for c in self.upvoted_comments]
+
+    def get_downvoted_comments(self):
+        """Returns a list of all comments downvoted by this user"""
+        return [c.serialize() for c in self.downvoted_comments]
