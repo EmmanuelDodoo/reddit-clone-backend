@@ -1,5 +1,5 @@
-from models import db, User, Token, Asset, Post, Comment
-from flask import Flask, request, redirect, Request
+from models import db, User, Token, Asset, Post, Comment, Subreddit
+from flask import Flask, request, Request
 import json
 import re
 from datetime import datetime
@@ -337,6 +337,19 @@ def get_user_comments(uid: int):
 
     return success_response({"posts": user.get_all_comments()})
 
+
+@app.route("/api/users/<int:uid>/subreddits/")
+def get_user_subreddits(uid: int):
+    """ Fetches all subreddits the `uid` has subscribed to
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    return success_response({"subreddits": user.get_subscriptions()})
+
+
 # Posts
 @app.route("/api/users/<int:uid>/posts/<int:pid>/upvote/", methods=["POST"])
 def upvote_post(uid: int, pid: int):
@@ -439,6 +452,8 @@ def create_post():
         User karma is increased by 47 if successful.
         Users automatically upvote their own post when created.
 
+        Current implementation assumes subreddit id is always present
+
         Requires an Authorization token
     """
 
@@ -460,6 +475,9 @@ def create_post():
     if body.get("contents") and not isinstance(body.get("contents"), str):
         return failure_response("Bad Request", 400)
 
+    if not body.get("subredditId") or not isinstance(body.get("subredditId"), int):
+        return failure_response("Bad request", 400)
+
     if body.get("imagePresent"):
         if not body.get("imageURL") or not isinstance(body.get("imageURL"), str):
             return failure_response("Bad Request", 400)
@@ -470,6 +488,12 @@ def create_post():
     if not user:
         return failure_response("User not found")
 
+    # Validate subreddit
+    subreddit: Subreddit = Subreddit.query.filter_by(
+        id=body.get("subredditId", 0)).first()
+    if not subreddit:
+        return failure_response("Subreddit not found")
+
     # Token verification
     success, message = verify_token(user.id, request)
     if not success:
@@ -478,6 +502,7 @@ def create_post():
     post: Post = Post(
         userid=body.get("userid", 0),
         title=body.get("title", ""),
+        subreddit_id=body.get("subredditId"),
         contents=body.get("contents", ""),
         image_present=body.get("imagePresent", ""),
         image_url=body.get("imageURL", "")
@@ -503,6 +528,7 @@ def get_post(pid: int):
         return failure_response("Post not found")
 
     return success_response(post.serialize())
+
 
 # Comments
 @app.route("/api/posts/<int:pid>/comments/")
@@ -582,8 +608,8 @@ def create_comment(pid: int):
             return failure_response("Ancestor Comment not found")
 
         else:
-            new_comment = Comment(body.get("userId", 0), pid, body.get(
-                "ancestorId", 0), body.get("contents", ""))
+            new_comment = Comment(user_id=body.get("userId", 0), post_id=pid, ancestor_id=body.get(
+                "ancestorId", 0), contents=body.get("contents", ""))
     else:
         new_comment = Comment(body.get("userId", 0), pid,
                               None, body.get("contents", ""))
@@ -693,19 +719,147 @@ def reset_comment_vote(uid: int, cid: int):
     return success_response(comment.serialize(), 201)
 
 
+# Subreddits
+@app.route("/api/subreddit/", methods=["POST"])
+def create_subreddit():
+    """ Creates a new subreddit
+
+        Requires authentication
+    """
+
+    if not request.data:
+        return failure_response("Missing request body", 400)
+
+    body: dict = json.loads(request.data)
+
+    if not body.get("name") or not isinstance(body.get("name"), str):
+        return failure_response("Bad Request", 400)
+
+    if not body.get("imageURL") or not isinstance(body.get("imageURL"), str):
+        return failure_response("Bad Request", 400)
+
+    if not body.get("thumbnailURL") or not isinstance(body.get("thumbnailURL"), str):
+        return failure_response("Bad Request", 400)
+
+    if not body.get("about") or not isinstance(body.get("about"), str):
+        return failure_response("Bad Request", 400)
+
+    if body.get("rules") == None or not isinstance(body.get("rules"), list) \
+            or not all(isinstance(rule, str) for rule in body.get("rules", [])):
+        return failure_response("Bad Request", 400)
+
+    if not body.get("userId") or not isinstance(body.get("userId"), int):
+        return failure_response("Bad Request", 400)
+
+    # User verification
+    user: User = User.query.filter_by(id=body.get("userId")).first()
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    subreddit = Subreddit(
+        name=body.get("name", ""),
+        image_url=body.get("imageURL", ""),
+        thumbnail_url=body.get("thumbnailURL", ""),
+        about=body.get("about", ""),
+        rules=body.get("rules", [])
+    )
+
+    db.session.add(subreddit)
+    db.session.commit()
+
+    return success_response(subreddit.serialize(), 201)
+
+
+@app.route("/api/subreddit/<int:sid>/")
+def get_specific_subreddit(sid: int):
+    """ Fetch a specific subreddit"""
+
+    subreddit: Subreddit = Subreddit.query.filter_by(id=sid).first()
+    if not subreddit:
+        return failure_response("Subreddit not found")
+
+    return success_response(subreddit.full_serialize(), 200)
+
+
+@app.route("/api/users/<int:uid>/subreddit/<int:sid>/subscribe/", methods=["POST"])
+def subscribe(uid: int, sid: int):
+    """ Subscribes the user to a subreddit.
+        No change is made if subscription was already made
+
+        Requires Authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    subreddit: Subreddit = Subreddit.query.filter_by(id=sid).first()
+    if not subreddit:
+        return failure_response("Subreddit not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    user.subscribe(subreddit)
+    db.session.commit()
+
+    return success_response(subreddit.serialize(), 201)
+
+
+@app.route("/api/users/<int:uid>/subreddit/<int:sid>/unsubscribe/", methods=["POST"])
+def unsubscribe(uid: int, sid: int):
+    """ Unsubscribes a user from a subreddit
+        No change is made if there was no prior subscription
+
+        Requires Authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    subreddit: Subreddit = Subreddit.query.filter_by(id=sid).first()
+    if not subreddit:
+        return failure_response("Subreddit not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    user.unsubscribe(subreddit)
+    db.session.commit()
+
+    return success_response(subreddit.serialize(), 201)
+
+
 @app.route("/api/testing/")
 def testing():
     """Testing stuff"""
 
-    comment: Comment = Comment.query.first()
+    subreddit: Subreddit = Subreddit(
+        "Testing subs",
+        "",
+        "",
+        "This sub has no about",
+        [
+            "All messages must be written in reverse order. The more confusing, the better!",
+            "Only emacs allowed",
+            "Only vi allowed"
+        ]
+    )
 
-    user: User = User.query.first()
-
-    user.upvote_comment(comment)
-
+    db.session.add(subreddit)
     db.session.commit()
 
-    return success_response(user.full_serialize())
+    return success_response(subreddit.serialize(), 201)
 
 
 if __name__ == "__main__":

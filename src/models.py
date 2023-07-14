@@ -73,6 +73,16 @@ users_posts_downvotes = db.Table(
     ))
 )
 
+users_subreddits_subscriptions = db.Table(
+    "users_subreddits_subscriptions",
+    db.Column("user_id", db.Integer, db.ForeignKey(
+        f"{USER_TABLE_NAME}.id"
+    )),
+    db.Column("subreddit_id", db.Integer, db.ForeignKey(
+        f"{SUBREDDIT_TABLE_NAME}.id"
+    ))
+)
+
 
 class Token(db.Model):
     """ Table to handle authorization tokens"""
@@ -259,6 +269,8 @@ class Post(db.Model):
     id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id: int = db.Column(
         db.Integer, db.ForeignKey(f"{USER_TABLE_NAME}.id"), nullable=False)
+    subreddit_id: int = db.Column(
+        db.Integer, db.ForeignKey(f"{SUBREDDIT_TABLE_NAME}.id"), default=0)
     title: str = db.Column(db.String, nullable=False)
     contents: str = db.Column(db.Text, nullable=True)
     image_present: bool = db.Column(db.Boolean, nullable=True)
@@ -274,11 +286,13 @@ class Post(db.Model):
         "User", secondary=users_posts_downvotes, back_populates="downvoted_posts"
     )
 
-    def __init__(self, userid: int, title: str, contents: str = "", image_present: bool = False, image_url: str = ""):
+    def __init__(self, userid: int, subreddit_id: int | None, title: str, contents: str = "", image_present: bool = False, image_url: str = ""):
         """
             Create a new post. The created_at and votes fields are automatically set. Votes is set to 1
         """
         self.user_id = userid
+        if subreddit_id != None:
+            self.subreddit_id = subreddit_id
         self.title = title
         self.contents = contents
         self.image_present = image_present
@@ -296,6 +310,23 @@ class Post(db.Model):
             "imageURL": self.image_url,
             "created_at": self.created_at,
             "votes": self.votes,
+            "subreddit": self.subreddit_id
+        }
+
+    def full_serialze(self):
+        """ Returns a full python dictionary view of this Post"""
+        return {
+            "id": self.id,
+            "userid": self.user_id,
+            "subreddit": self.subreddit_id,
+            "title": self.title,
+            "contents": self.contents,
+            "imagePresent": self.image_present,
+            "imageURL": self.image_url,
+            "created_at": self.created_at,
+            "votes": self.votes,
+            "commentNumber": len(self.comments),
+            "comments": [c.serialize() for c in self.comments],
         }
 
     def upvote(self):
@@ -366,6 +397,21 @@ class Comment(db.Model):
             "votes": self.votes,
             "created_at": self.created_at,
             "ancestor_id": self.ancestor_id,
+            "replyNumber": len(self.replies)
+
+        }
+
+    def full_serialize(self):
+        """ Returns a full python dictionary view of this comment"""
+
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "post_id": self.post_id,
+            "contents": self.contents,
+            "votes": self.votes,
+            "created_at": self.created_at,
+            "ancestor_id": self.ancestor_id,
             "replies": [r.serialize() for r in self.replies]
 
         }
@@ -382,6 +428,80 @@ class Comment(db.Model):
         """
 
         self.votes -= 1
+
+
+class Subreddit(db.Model):
+    """ Table representing subreddits"""
+
+    __tablename__ = SUBREDDIT_TABLE_NAME
+    id: int = db.Column(db.Integer, autoincrement=True, primary_key=True)
+    name: str = db.Column(db.String, nullable=False)
+    imageURL: str = db.Column(db.String, nullable=False)
+    thumbnail: str = db.Column(db.String, nullable=False)
+    about: str = db.Column(db.Text, nullable=False)
+    _rules: str = db.Column(db.Text)
+    subcribers: list["User"] = db.relationship(
+        "User", secondary=users_subreddits_subscriptions, back_populates="subscriptions"
+    )
+    posts: list[Post] = db.relationship("Post")
+
+    def _process_rules_to_string(self, rules: list[str]):
+        """
+            Processes and returns a list of string rules into 
+            a single string for storage
+        """
+        return ":;".join(rules)
+
+    def _process_string_to_rules(self):
+        """ Processes and returns the rules string into a list
+            of strings.
+        """
+        return self._rules.split(":;")
+
+    def __init__(self, name: str, image_url: str, thumbnail_url: str, about: str, rules: list[str]):
+        """ Create a new subreddit"""
+
+        self.name = name
+        self.imageURL = image_url
+        self.thumbnail = thumbnail_url
+        self.about = about
+        self._rules = self._process_rules_to_string(rules)
+
+    def serialize(self):
+        """ Returns a simple python dictionary view of this subreddit"""
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "about": self.about,
+            "imageURL": self.imageURL,
+            "thumbnail": self.thumbnail,
+            "rules": self._process_string_to_rules()
+        }
+
+    def full_serialize(self):
+        """ Returns a full python dictionary view of this subreddit"""
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "about": self.about,
+            "imageURL": self.imageURL,
+            "thumbnail": self.thumbnail,
+            "subscribers": len(self.subcribers),
+            "rules": self._process_string_to_rules(),
+            "posts": self.get_all_posts()
+        }
+
+    def get_all_posts(self):
+        """ Returns a list of all Posts in this subreddit"""
+
+        return [p.serialize() for p in self.posts]
+
+    def get_subscribers(self):
+        """ Returns a list of all Users subscribed to this subreddit"""
+
+        return [u.serialize() for u in self.subcribers]
 
 
 class User(db.Model):
@@ -411,6 +531,11 @@ class User(db.Model):
         "Comment", secondary=users_comments_upvotes, back_populates="upvoting_users")
     downvoted_comments: list["Comment"] = db.relationship(
         "Comment", secondary=users_comments_downvotes, back_populates="downvoting_users")
+
+    # Subreddits
+    subscriptions: list[Subreddit] = db.relationship(
+        "Subreddit", secondary=users_subreddits_subscriptions, back_populates="subcribers"
+    )
 
     @classmethod
     def _process_password(cls, password: str):
@@ -463,7 +588,8 @@ class User(db.Model):
             "downvoted_posts": self.get_downvoted_posts(),
             "comments": self.get_all_comments(),
             "upvoted_comments": self.get_upvoted_comments(),
-            "downvoted_comments": self.get_downvoted_comments()
+            "downvoted_comments": self.get_downvoted_comments(),
+            "subreddits": self.get_subscriptions(),
         }
 
     def hash_and_verify(self, password: str):
@@ -655,3 +781,31 @@ class User(db.Model):
     def get_downvoted_comments(self):
         """Returns a list of all comments downvoted by this user"""
         return [c.serialize() for c in self.downvoted_comments]
+
+    # Subreddits
+    def get_subscriptions(self):
+        """ Returns a list of all subreddits this user has subscribed to."""
+
+        return [s.serialize() for s in self.subscriptions]
+
+    def subscribe(self, subreddit: Subreddit):
+        """ Subscribes this user to `subreddit`
+
+            Nothing is changed if the user was already subscribed.
+        """
+
+        if subreddit in self.subscriptions:
+            return
+
+        self.subscriptions.append(subreddit)
+
+    def unsubscribe(self, subreddit: Subreddit):
+        """ Unsubscribes this suer from `subreddit`.
+
+            Nothing is changed if the user was not subscribed.
+        """
+
+        if not subreddit in self.subscriptions:
+            return
+
+        self.subscriptions.remove(subreddit)
