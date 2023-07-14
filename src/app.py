@@ -3,6 +3,7 @@ from flask import Flask, request, Request
 import json
 import re
 from datetime import datetime
+from sqlalchemy import func, desc
 import os
 import random
 import base64
@@ -96,11 +97,23 @@ def verify_token(userid: int, request: Request):
 # -----------------------------------------------------------
 
 
+@app.route("/api/home/")
 @app.route("/api/")
 def home():
-    """The home end point of this api"""
+    """Fetches a posts in a random order"""
 
-    return "Home end point reached", 200
+    output = [p.serialize() for p in Post.query.order_by(func.random()).all()]
+
+    return success_response({"home": output})
+
+
+@app.route("/api/popular/")
+def popular():
+    """ Fetches post according to their popularity"""
+
+    output = [p.serialize() for p in Post.query.order_by(desc("votes")).all()]
+
+    return success_response({"popular": output})
 
 
 @app.route("/api/signup/", methods=["POST"])
