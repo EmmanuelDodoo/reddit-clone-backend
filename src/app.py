@@ -165,14 +165,14 @@ def signup():
 
     # Build response
     response = {
-        "user_id": new_user.id,
+        "userId": new_user.id,
         "username": new_user.username,
         "userImageURL": new_user.image_url,
         "karma": new_user.karma,
-        "token_id": token.id,
-        "token_value": token.value,
-        "token_start": token.created_at,
-        "token_expiration": token.expires_at
+        "tokenId": token.id,
+        "tokenValue": token.value,
+        "tokenStart": token.created_at,
+        "tokenExpiration": token.expires_at
     }
 
     return success_response(response, 201)
@@ -217,14 +217,14 @@ def login():
 
     # Build response
     response = {
-        "user_id": user.id,
+        "userId": user.id,
         "username": user.username,
         "userImageURL": user.image_url,
         "karma": user.karma,
-        "token_id": token.id,
-        "token_value": token.value,
-        "token_start": token.created_at,
-        "token_expiration": token.expires_at
+        "tokenId": token.id,
+        "tokenValue": token.value,
+        "tokenStart": token.created_at,
+        "tokenExpiration": token.expires_at
     }
 
     return success_response(response)
@@ -265,7 +265,7 @@ def update_user(id: int):
     """ Updates the fields of this user. 
         Only fields specified in the request body are updated.
 
-        A valid token for the use ris required.
+        Requires Authentication 
     """
 
     # User querying
@@ -325,7 +325,8 @@ def update_user(id: int):
             user.increase_karma(body.get("karma", 0))
         else:
             return failure_response("Bad request body", 400)
-
+        
+    db.session.commit()
     return success_response(user.serialize(), 201)
 
 
@@ -348,7 +349,7 @@ def get_user_comments(uid: int):
     if not user:
         return failure_response("User not found")
 
-    return success_response({"posts": user.get_all_comments()})
+    return success_response({"comments": user.get_all_comments()})
 
 
 @app.route("/api/users/<int:uid>/subreddits/")
@@ -370,7 +371,7 @@ def upvote_post(uid: int, pid: int):
         Upvote a post. User karma is increased by 2
         No change is made if the user has already upvoted this post.
 
-        `uid` should match the user  currently doing the upvote
+        `uid` should match the user currently doing the upvote
 
         Requires Authentication
 
@@ -476,7 +477,7 @@ def create_post():
     body: dict = json.loads(request.data)
 
     # Validate the request body
-    if not body.get("userid") or not isinstance(body.get("userid"), int):
+    if not body.get("userId") or not isinstance(body.get("userId"), int):
         return failure_response("Bad Request", 400)
 
     if not body.get("title") or not isinstance(body.get("title"), str):
@@ -496,7 +497,7 @@ def create_post():
             return failure_response("Bad Request", 400)
 
     # Validate user existence
-    user: User = User.query.filter_by(id=body.get("userid")).first()
+    user: User = User.query.filter_by(id=body.get("userId")).first()
 
     if not user:
         return failure_response("User not found")
@@ -513,7 +514,7 @@ def create_post():
         return message
 
     post: Post = Post(
-        userid=body.get("userid", 0),
+        user_id=body.get("userId", 0),
         title=body.get("title", ""),
         subreddit_id=body.get("subredditId"),
         contents=body.get("contents", ""),
@@ -532,7 +533,7 @@ def create_post():
 
 
 @app.route("/api/posts/<int:pid>/")
-def get_post(pid: int):
+def get_specific_post(pid: int):
     """ Return the post with matching id"""
 
     post: Post = Post.query.filter_by(id=pid).first()

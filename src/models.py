@@ -89,16 +89,16 @@ class Token(db.Model):
 
     __tablename__ = TOKEN_TABLE_NAME
     id: int = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    userid: int = db.Column(
+    user_id: int = db.Column(
         db.Integer, db.ForeignKey(f"{TOKEN_TABLE_NAME}.id"), nullable=False)
     value: str = db.Column(db.String, nullable=False)
     created_at: int = db.Column(db.Integer, nullable=False)
     expires_at: int = db.Column(db.Integer, nullable=False)
 
-    def __init__(self, userid: int):
+    def __init__(self, user_id: int):
         """ Create a new session token for a given user id. Tokens expire after 1 day"""
 
-        self.userid = userid
+        self.user_id = user_id
         self.value = self._maketoken()
         self.created_at = int(datetime.now().timestamp())
         self.expires_at = int((datetime.now() + timedelta(days=1)).timestamp())
@@ -108,7 +108,7 @@ class Token(db.Model):
 
         return hashlib.sha256(os.urandom(64)).hexdigest()
 
-    def extend_token(self, userid):
+    def extend_token(self, user_id):
         """
             Extends the expiration of this token by 1 day for given userid.
             Will not be renewed if the token cannot be verified.
@@ -116,26 +116,25 @@ class Token(db.Model):
             Returns True if renewal is successful
         """
 
-        if not self.verify(userid):
+        if not self.verify(user_id):
             return False
 
         self.expires_at = int((datetime.now() + timedelta(days=1)).timestamp())
-        db.session.commit()
 
         return True
 
-    def verify(self, userid: int):
-        """ Checks i fthis token is valid for given user id"""
-        return self.userid == userid and (self.expires_at > datetime.now().timestamp())
+    def verify(self, user_id: int):
+        """ Returns True if this token is valid for given user id"""
+        return self.user_id == user_id and (self.expires_at > datetime.now().timestamp())
 
     def serialize(self):
         """ Returns a python dictionary representation of this token"""
         return {
             "id": self.id,
-            "userid": self.userid,
+            "userId": self.user_id,
             "token": self.value,
-            "created_at": self.created_at,
-            "expires_at": self.expires_at
+            "createdAt": self.created_at,
+            "expiresAt": self.expires_at
         }
 
 
@@ -286,11 +285,13 @@ class Post(db.Model):
         "User", secondary=users_posts_downvotes, back_populates="downvoted_posts"
     )
 
-    def __init__(self, userid: int, subreddit_id: int | None, title: str, contents: str = "", image_present: bool = False, image_url: str = ""):
+    def __init__(self, user_id: int, subreddit_id: int | None, title: str, 
+                 contents: str = "", image_present: bool = False, 
+                 image_url: str = ""):
         """
             Create a new post. The created_at and votes fields are automatically set. Votes is set to 1
         """
-        self.user_id = userid
+        self.user_id = user_id
         if subreddit_id != None:
             self.subreddit_id = subreddit_id
         self.title = title
@@ -303,27 +304,28 @@ class Post(db.Model):
         """ Returns a simplified python dictionary view of this Post"""
         return {
             "id": self.id,
-            "userid": self.user_id,
+            "userId": self.user_id,
+            "subredditId": self.subreddit_id,
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
             "imageURL": self.image_url,
-            "created_at": self.created_at,
+            "createdAt": self.created_at,
             "votes": self.votes,
-            "subreddit": self.subreddit_id
+            "commentNumber": len(self.comments),
         }
 
     def full_serialze(self):
         """ Returns a full python dictionary view of this Post"""
         return {
             "id": self.id,
-            "userid": self.user_id,
-            "subreddit": self.subreddit_id,
+            "userId": self.user_id,
+            "subredditId": self.subreddit_id,
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
             "imageURL": self.image_url,
-            "created_at": self.created_at,
+            "createdAt": self.created_at,
             "votes": self.votes,
             "commentNumber": len(self.comments),
             "comments": [c.serialize() for c in self.comments],
@@ -391,12 +393,12 @@ class Comment(db.Model):
 
         return {
             "id": self.id,
-            "user_id": self.user_id,
-            "post_id": self.post_id,
+            "userId": self.user_id,
+            "postId": self.post_id,
             "contents": self.contents,
             "votes": self.votes,
-            "created_at": self.created_at,
-            "ancestor_id": self.ancestor_id,
+            "createdAt": self.created_at,
+            "ancestorId": self.ancestor_id,
             "replyNumber": len(self.replies)
 
         }
@@ -406,12 +408,12 @@ class Comment(db.Model):
 
         return {
             "id": self.id,
-            "user_id": self.user_id,
-            "post_id": self.post_id,
+            "userId": self.user_id,
+            "postId": self.post_id,
             "contents": self.contents,
             "votes": self.votes,
-            "created_at": self.created_at,
-            "ancestor_id": self.ancestor_id,
+            "createdAt": self.created_at,
+            "ancestorId": self.ancestor_id,
             "replies": [r.serialize() for r in self.replies]
 
         }
@@ -475,7 +477,7 @@ class Subreddit(db.Model):
             "name": self.name,
             "about": self.about,
             "imageURL": self.imageURL,
-            "thumbnail": self.thumbnail,
+            "thumbnailURL": self.thumbnail,
             "rules": self._process_string_to_rules()
         }
 
@@ -487,8 +489,8 @@ class Subreddit(db.Model):
             "name": self.name,
             "about": self.about,
             "imageURL": self.imageURL,
-            "thumbnail": self.thumbnail,
-            "subscribers": len(self.subcribers),
+            "thumbnailURL": self.thumbnail,
+            "subscriberNumber": len(self.subcribers),
             "rules": self._process_string_to_rules(),
             "posts": self.get_all_posts()
         }
@@ -551,7 +553,7 @@ class User(db.Model):
 
         return hash.hexdigest()
 
-    def __init__(self, username: str, email: str, password: str, imageURL: str = ""):
+    def __init__(self, username: str, email: str, password: str, image_url: str = ""):
         """Create a new User instance. The id, karma and joindate
           are generated automatically. The password provided is salted and hashed
           before being stored.
@@ -560,7 +562,7 @@ class User(db.Model):
 
         self.username = username
         self.email = email
-        self.image_url = imageURL if imageURL else DEFAULT_PICTURE_URL
+        self.image_url = image_url if image_url else DEFAULT_PICTURE_URL
         self.joined = int(datetime.now().timestamp())
         self._passoword = self._process_password(password)
 
@@ -584,11 +586,11 @@ class User(db.Model):
             "joined": self.joined,
             "email": self.email,
             "posts": self.get_all_posts(),
-            "upvoted_posts": self.get_upvoted_posts(),
-            "downvoted_posts": self.get_downvoted_posts(),
+            "upvotedPosts": self.get_upvoted_posts(),
+            "downvotedPosts": self.get_downvoted_posts(),
             "comments": self.get_all_comments(),
-            "upvoted_comments": self.get_upvoted_comments(),
-            "downvoted_comments": self.get_downvoted_comments(),
+            "upvotedComments": self.get_upvoted_comments(),
+            "downvotedComments": self.get_downvoted_comments(),
             "subreddits": self.get_subscriptions(),
         }
 
@@ -609,7 +611,6 @@ class User(db.Model):
         the database."""
 
         self.username = new_username
-        db.session.commit()
 
     def update_image_url(self, new_url: str):
         """
@@ -618,7 +619,6 @@ class User(db.Model):
         """
 
         self.image_url = new_url
-        db.session.commit()
 
     def update_password(self, new_password: str):
         """
@@ -627,14 +627,12 @@ class User(db.Model):
         """
 
         self._passoword = self._process_password(new_password)
-        db.session.commit()
 
     def update_email(self, new_email: str):
         """ Updates the email of this user, committing the changes to the
             database
         """
         self.email = new_email
-        db.session.commit()
 
     def increase_karma(self, amount: int):
         """ Increases the karma of this user by `amount`, committing
@@ -642,7 +640,6 @@ class User(db.Model):
         """
 
         self.karma += amount
-        db.session.commit()
 
     # Posts
     def get_upvoted_posts(self):
