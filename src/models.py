@@ -351,7 +351,7 @@ class Post(db.Model):
             Replies are returned under their parent comments.
         """
 
-        return [c.serialize() for c in self.comments if c.ancestor_id < 1]
+        return [c.full_serialize() for c in self.comments if c.ancestor_id < 1]
 
 
 class Comment(db.Model):
@@ -414,7 +414,7 @@ class Comment(db.Model):
             "votes": self.votes,
             "createdAt": self.created_at,
             "ancestorId": self.ancestor_id,
-            "replies": [r.serialize() for r in self.replies]
+            "replies": [r.full_serialize() for r in self.replies]
 
         }
 
@@ -478,6 +478,7 @@ class Subreddit(db.Model):
             "about": self.about,
             "imageURL": self.imageURL,
             "thumbnailURL": self.thumbnail,
+            "subscriberNumber": len(self.subcribers),
             "rules": self._process_string_to_rules()
         }
 

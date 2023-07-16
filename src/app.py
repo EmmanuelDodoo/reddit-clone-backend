@@ -207,7 +207,7 @@ def login():
     if not user:
         return failure_response("Incorrect credentials", 401)
 
-    if not user.hash_and_verify(req_body.get("password", "")):
+    if not user.verify(req_body.get("password", "")):
         return failure_response("Incorrect credentials", 401)
 
     # Create a new session token
@@ -257,7 +257,7 @@ def get_user(id: int):
     if not user:
         return failure_response("User not found")
 
-    return success_response(user.full_serialize())
+    return success_response(user.serialize())
 
 
 @app.route("/api/users/<int:id>/", methods=["PATCH"])
@@ -279,16 +279,9 @@ def update_user(id: int):
     body: dict = json.loads(request.data)
 
     # Token verification
-    sucess, message = extract_token(request)
-    if not sucess:
+    success, message = verify_token(user.id, request)
+    if not success:
         return message
-
-    token: Token = Token.query.filter_by(value=message).first()
-    if not token:
-        return failure_response("Invalid session token", 401)
-
-    if not token.verify(user.id):
-        return failure_response("Invalid session token", 401)
 
     # Username
     if body.get("username"):
@@ -325,7 +318,7 @@ def update_user(id: int):
             user.increase_karma(body.get("karma", 0))
         else:
             return failure_response("Bad request body", 400)
-        
+
     db.session.commit()
     return success_response(user.serialize(), 201)
 
@@ -341,6 +334,43 @@ def get_user_posts(uid: int):
     return success_response({"posts": user.get_all_posts()})
 
 
+@app.route("/api/users/<int:uid>/posts/upvoted/")
+def get_user_upvoted_posts(uid: int):
+    """ Returns all posts upvoted by a user. Authentication is required.
+
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    return success_response({"upvotedPosts": user.get_upvoted_posts()})
+
+
+@app.route("/api/users/<int:uid>/posts/downvoted/")
+def get_user_downvoted_posts(uid: int):
+    """ Returns all posts downvoted by a user. 
+
+        Requires authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    return success_response({"downvotedPosts": user.get_downvoted_posts()})
+
+
 @app.route("/api/users/<int:uid>/comments/")
 def get_user_comments(uid: int):
     """ Returns all user comments"""
@@ -350,6 +380,44 @@ def get_user_comments(uid: int):
         return failure_response("User not found")
 
     return success_response({"comments": user.get_all_comments()})
+
+
+@app.route("/api/users/<int:uid>/comments/upvoted/")
+def get_user_upvoted_comments(uid: int):
+    """ Returns all comments upvoted by a user
+
+        Requires authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    return success_response({"upvotedComments": user.get_upvoted_comments()})
+
+
+@app.route("/api/users/<int:uid>/comments/downvoted/")
+def get_user_downvoted_comments(uid: int):
+    """ Returns all comments downvoted by a user
+
+        Requires authentication
+    """
+
+    user: User = User.query.filter_by(id=uid).first()
+    if not user:
+        return failure_response("User not found")
+
+    # Token verification
+    success, message = verify_token(user.id, request)
+    if not success:
+        return message
+
+    return success_response({"downvotedComments": user.get_downvoted_comments()})
 
 
 @app.route("/api/users/<int:uid>/subreddits/")
@@ -472,7 +540,7 @@ def create_post():
     """
 
     if not request.data:
-        return failure_response("Bad Request", 400)
+        return failure_response("Missing request body", 400)
 
     body: dict = json.loads(request.data)
 
@@ -797,7 +865,18 @@ def get_specific_subreddit(sid: int):
     if not subreddit:
         return failure_response("Subreddit not found")
 
-    return success_response(subreddit.full_serialize(), 200)
+    return success_response(subreddit.serialize(), 200)
+
+
+@app.route("/api/subreddit/<int:sid>/posts/")
+def get_subreddit_post(sid: int):
+    """ Fetch the posts in this subreddit"""
+
+    subreddit: Subreddit = Subreddit.query.filter_by(id=sid).first()
+    if not subreddit:
+        return failure_response("Subreddit not found")
+
+    return success_response({"posts": subreddit.get_all_posts()})
 
 
 @app.route("/api/users/<int:uid>/subreddit/<int:sid>/subscribe/", methods=["POST"])
@@ -854,7 +933,7 @@ def unsubscribe(uid: int, sid: int):
     return success_response(subreddit.serialize(), 201)
 
 
-@app.route("/api/testing/")
+# @app.route("/api/testing/")
 def testing():
     """Testing stuff"""
 
