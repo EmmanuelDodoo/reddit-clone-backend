@@ -2,8 +2,6 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os
 import hashlib
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-import json
 import re
 import random
 import base64
@@ -13,6 +11,7 @@ from io import BytesIO
 import boto3
 from mimetypes import guess_extension, guess_type
 from datetime import datetime
+from dotenv import load_dotenv
 
 # ==========================Constants===================================
 
@@ -27,6 +26,7 @@ SUBREDDIT_TABLE_NAME = "subreddits"
 
 
 # ============================ Asset stuff========================================
+load_dotenv()
 EXTENSIONS = ["jpg", "png", "gif", "jpeg"]
 S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "")
 S3_BASE_URL: str = f"https://{S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com"
