@@ -94,6 +94,10 @@ def verify_token(userid: int, request: Request):
 
 # -----------------------------------------------------------
 
+@app.route("/")
+def greeting():
+    return "Home of the reddit clone api"
+
 
 @app.route("/api/home/")
 @app.route("/api/")
