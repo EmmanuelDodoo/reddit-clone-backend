@@ -2,11 +2,9 @@ from models import db, User, Token, Asset, Post, Comment, Subreddit
 from flask import Flask, request, Request
 import json
 import re
-from datetime import datetime
 from sqlalchemy import func, desc
-import os
-import random
 import base64
+from waitress import serve
 
 # ------------Config----------------------------------------
 app = Flask(__name__)
@@ -956,4 +954,5 @@ def testing():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # app.run(host="0.0.0.0", port=8000, debug=True)
+    serve(app, host="127.0.0.1", port=8080)
