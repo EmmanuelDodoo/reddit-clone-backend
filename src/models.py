@@ -305,7 +305,7 @@ class Post(db.Model):
         return {
             "id": self.id,
             "user": User.query.filter_by(id=self.user_id).first().serialize(),
-            "subredditId": Subreddit.query.filter_by(id=self.subreddit_id).first().serialize(),
+            "subreddit": Subreddit.query.filter_by(id=self.subreddit_id).first().serialize(),
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
