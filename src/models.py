@@ -304,8 +304,8 @@ class Post(db.Model):
         """ Returns a simplified python dictionary view of this Post"""
         return {
             "id": self.id,
-            "userId": self.user_id,
-            "subredditId": self.subreddit_id,
+            "user": User.query.filter_by(id=self.user_id).first().serialize(),
+            "subredditId": Subreddit.query.filter_by(id=self.subreddit_id).first().serialize(),
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
@@ -319,8 +319,8 @@ class Post(db.Model):
         """ Returns a full python dictionary view of this Post"""
         return {
             "id": self.id,
-            "userId": self.user_id,
-            "subredditId": self.subreddit_id,
+            "user": User.query.filter_by(id=self.user_id).first().serialize(),
+            "subredditId": Subreddit.query.filter_by(id=self.subreddit_id).first().serialize(),
             "title": self.title,
             "contents": self.contents,
             "imagePresent": self.image_present,
@@ -393,7 +393,7 @@ class Comment(db.Model):
 
         return {
             "id": self.id,
-            "userId": self.user_id,
+            "user": User.query.filter_by(id=self.user_id).first().serialize(),
             "postId": self.post_id,
             "contents": self.contents,
             "votes": self.votes,
@@ -408,7 +408,7 @@ class Comment(db.Model):
 
         return {
             "id": self.id,
-            "userId": self.user_id,
+            "user": User.query.filter_by(id=self.user_id).first().serialize(),
             "postId": self.post_id,
             "contents": self.contents,
             "votes": self.votes,
