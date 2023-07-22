@@ -94,6 +94,7 @@ def verify_token(userid: int, request: Request):
 
 # -----------------------------------------------------------
 
+
 @app.route("/")
 def greeting():
     return "Home of the reddit clone api"
@@ -171,6 +172,7 @@ def signup():
         "username": new_user.username,
         "userImageURL": new_user.image_url,
         "karma": new_user.karma,
+        "joined": new_user.joined,
         "tokenId": token.id,
         "tokenValue": token.value,
         "tokenStart": token.created_at,
@@ -223,6 +225,7 @@ def login():
         "username": user.username,
         "userImageURL": user.image_url,
         "karma": user.karma,
+        "joined": user.joined,
         "tokenId": token.id,
         "tokenValue": token.value,
         "tokenStart": token.created_at,
