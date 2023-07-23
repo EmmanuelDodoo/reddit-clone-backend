@@ -809,7 +809,8 @@ def reset_comment_vote(uid: int, cid: int):
 # Subreddits
 @app.route("/api/subreddit/", methods=["POST"])
 def create_subreddit():
-    """ Creates a new subreddit
+    """ Creates a new subreddit. The creating user is automatically
+        subscribed to the new subreddit.
 
         Requires authentication
     """
@@ -857,6 +858,7 @@ def create_subreddit():
     )
 
     db.session.add(subreddit)
+    user.subscribe(subreddit)
     db.session.commit()
 
     return success_response(subreddit.serialize(), 201)
