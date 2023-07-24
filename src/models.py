@@ -21,6 +21,7 @@ ASSET_TABLE_NAME = "images"
 TOKEN_TABLE_NAME = "tokens"
 COMMENT_TABLE_NAME = "comments"
 SUBREDDIT_TABLE_NAME = "subreddits"
+TOKEN_DURATION_IN_DAYS = int(os.getenv("TOKEN_DURATION_IN_DAYS", "1"))
 
 # ========================================================================
 
@@ -101,7 +102,7 @@ class Token(db.Model):
         self.user_id = user_id
         self.value = self._maketoken()
         self.created_at = int(datetime.now().timestamp())
-        self.expires_at = int((datetime.now() + timedelta(days=1)).timestamp())
+        self.expires_at = int((datetime.now() + timedelta(days=TOKEN_DURATION_IN_DAYS)).timestamp())
 
     def _maketoken(self):
         """Produce a token value"""
