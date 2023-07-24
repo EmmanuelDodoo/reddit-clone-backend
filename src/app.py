@@ -341,7 +341,7 @@ def get_user_posts(uid: int):
 
 @app.route("/api/users/<int:uid>/posts/upvoted/")
 def get_user_upvoted_posts(uid: int):
-    """ Returns all posts upvoted by a user. Authentication is required.
+    """ Returns all posts upvoted by a user. 
 
     """
 
@@ -350,9 +350,9 @@ def get_user_upvoted_posts(uid: int):
         return failure_response("User not found")
 
     # Token verification
-    success, message = verify_token(user.id, request)
-    if not success:
-        return message
+    # success, message = verify_token(user.id, request)
+    # if not success:
+    #     return message
 
     return success_response({"upvotedPosts": user.get_upvoted_posts()})
 
@@ -361,7 +361,6 @@ def get_user_upvoted_posts(uid: int):
 def get_user_downvoted_posts(uid: int):
     """ Returns all posts downvoted by a user. 
 
-        Requires authentication
     """
 
     user: User = User.query.filter_by(id=uid).first()
@@ -369,9 +368,9 @@ def get_user_downvoted_posts(uid: int):
         return failure_response("User not found")
 
     # Token verification
-    success, message = verify_token(user.id, request)
-    if not success:
-        return message
+    # success, message = verify_token(user.id, request)
+    # if not success:
+    #     return message
 
     return success_response({"downvotedPosts": user.get_downvoted_posts()})
 
@@ -390,8 +389,6 @@ def get_user_comments(uid: int):
 @app.route("/api/users/<int:uid>/comments/upvoted/")
 def get_user_upvoted_comments(uid: int):
     """ Returns all comments upvoted by a user
-
-        Requires authentication
     """
 
     user: User = User.query.filter_by(id=uid).first()
@@ -399,9 +396,9 @@ def get_user_upvoted_comments(uid: int):
         return failure_response("User not found")
 
     # Token verification
-    success, message = verify_token(user.id, request)
-    if not success:
-        return message
+    # success, message = verify_token(user.id, request)
+    # if not success:
+    #     return message
 
     return success_response({"upvotedComments": user.get_upvoted_comments()})
 
@@ -409,8 +406,6 @@ def get_user_upvoted_comments(uid: int):
 @app.route("/api/users/<int:uid>/comments/downvoted/")
 def get_user_downvoted_comments(uid: int):
     """ Returns all comments downvoted by a user
-
-        Requires authentication
     """
 
     user: User = User.query.filter_by(id=uid).first()
@@ -418,9 +413,9 @@ def get_user_downvoted_comments(uid: int):
         return failure_response("User not found")
 
     # Token verification
-    success, message = verify_token(user.id, request)
-    if not success:
-        return message
+    # success, message = verify_token(user.id, request)
+    # if not success:
+    #     return message
 
     return success_response({"downvotedComments": user.get_downvoted_comments()})
 
